@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Neon Galaxy Shooter</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&display=swap');
+
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #050510;
+            color: white;
+            font-family: 'Orbitron', sans-serif;
+            touch-action: none; /* スマホでのスクロール防止 */
+        }
+
+        canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        .ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none; /* UIの後ろのキャンバスをクリックできるようにする */
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .interactive {
+            pointer-events: auto;
+        }
+
+        .glass-panel {
+            background: rgba(10, 10, 30, 0.6);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(0, 255, 255, 0.2);
+            box-shadow: 0 0 20px rgba(0, 255, 255, 0.1);
+        }
+
+        .btn-neon {
+            background: transparent;
+            color: #0ff;
+            border: 2px solid #0ff;
+            box-shadow: 0 0 10px rgba(0, 255, 255, 0.5), inset 0 0 10px rgba(0, 255, 255, 0.5);
+            transition: all 0.3s ease;
+        }
+
+        .btn-neon:hover, .btn-neon:active {
+            background: #0ff;
+            color: #000;
+            box-shadow: 0 0 20px #0ff, inset 0 0 20px #0ff;
+        }
+
+        .text-glow {
+            text-shadow: 0 0 10px rgba(0, 255, 255, 0.8), 0 0 20px rgba(0, 255, 255, 0.5);
+        }
+        
+        .text-glow-red {
+            text-shadow: 0 0 10px rgba(255, 0, 100, 0.8), 0 0 20px rgba(255, 0, 100, 0.5);
+        }
+
+        .text-glow-purple {
+            text-shadow: 0 0 10px rgba(217, 70, 239, 0.8), 0 0 20px rgba(217, 70, 239, 0.5);
+        }
+
+        /* HUD (Head-Up Display) */
+        #hud {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            right: 20px;
+            display: flex;
+            justify-content: space-between;
+            font-size: 1.2rem;
+            font-weight: bold;
+            pointer-events: none;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- HUD (Score & Health) -->
+    <div id="hud" class="hidden">
+        <div class="text-glow text-cyan-400">SCORE: <span id="scoreEl">0</span></div>
+        <div class="text-glow-purple text-fuchsia-400">NOVA: <span id="specialEl">3</span></div>
+        <div class="text-glow-red text-rose-500">HP: <span id="hpEl">3</span></div>
+    </div>
+
+    <!-- UI Overlay (Start / Game Over) -->
+    <div id="uiContainer" class="ui-layer">
+        
+        <!-- Start Screen -->
+        <div id="startScreen" class="glass-panel p-10 rounded-2xl flex flex-col items-center interactive">
+            <h1 class="text-4xl md:text-6xl font-black text-cyan-400 text-glow mb-2 text-center tracking-wider">NEON GALAXY</h1>
+            <p class="text-cyan-200 mb-8 tracking-widest text-sm md:text-base">TACTICAL SHOOTER</p>
+            <p class="text-gray-400 mb-8 text-center text-xs md:text-sm max-w-xs">
+                Drag to move and shoot.<br>Destroy enemies and survive.
+            </p>
+            <button id="startBtn" class="btn-neon px-8 py-3 rounded-full font-bold text-lg tracking-widest uppercase outline-none">
+                Initialize
+            </button>
+        </div>
+
+        <!-- Game Over Screen -->
+        <div id="gameOverScreen" class="glass-panel p-10 rounded-2xl flex flex-col items-center interactive hidden">
+            <h1 class="text-5xl font-black text-rose-500 text-glow-red mb-2 text-center">SYSTEM FAILURE</h1>
+            <p class="text-gray-300 mb-6 tracking-widest">FINAL SCORE: <span id="finalScore" class="text-cyan-400 text-glow font-bold text-2xl ml-2">0</span></p>
+            <button id="restartBtn" class="btn-neon px-8 py-3 rounded-full font-bold text-lg tracking-widest uppercase outline-none mt-4">
+                Reboot System
+            </button>
+        </div>
+
+        <!-- Special Attack Button (Mobile/Touch) -->
+        <button id="specialBtn" class="absolute bottom-10 right-8 btn-neon w-16 h-16 rounded-full font-bold text-sm tracking-widest outline-none hidden z-20 flex items-center justify-center interactive shadow-lg">
+            NOVA
+        </button>
+
+    </div>
+
+    <!-- Game Canvas -->
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        // UI Elements
+        const uiContainer = document.getElementById('uiContainer');
+        const startScreen = document.getElementById('startScreen');
+        const gameOverScreen = document.getElementById('gameOverScreen');
+        const hud = document.getElementById('hud');
+        const scoreEl = document.getElementById('scoreEl');
+        const specialEl = document.getElementById('specialEl');
+        const hpEl = document.getElementById('hpEl');
+        const finalScoreEl = document.getElementById('finalScore');
+        const startBtn = document.getElementById('startBtn');
+        const restartBtn = document.getElementById('restartBtn');
+        const specialBtn = document.getElementById('specialBtn');
+
+        // Resize Canvas
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        // Game State
+        let animationId;
+        let score = 0;
+        let isGameRunning = false;
+        let frameCount = 0;
+
+        // Entities Arrays
+        let player;
+        let projectiles = [];
+        let enemies = [];
+        let particles = [];
+        let stars = [];
+        let shockwaves = [];
+
+        // Input Tracking
+        const mouse = {
+            x: canvas.width / 2,
+            y: canvas.height - 100,
+            isDown: false
+        };
+
+        // --- Classes ---
+
+        class Star {
+            constructor() {
+                this.x = Math.random() * canvas.width;
+                this.y = Math.random() * canvas.height;
+                this.size = Math.random() * 2;
+                this.speed = (Math.random() * 0.5) + 0.1;
+                this.alpha = Math.random();
+            }
+            update() {
+                this.y += this.speed;
+                if (this.y > canvas.height) {
+                    this.y = 0;
+                    this.x = Math.random() * canvas.width;
+                }
+            }
+            draw() {
+                ctx.fillStyle = `rgba(255, 255, 255, ${this.alpha})`;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        class Player {
+            constructor() {
+                this.x = canvas.width / 2;
+                this.y = canvas.height - 100;
+                this.radius = 15;
+                this.color = '#0ff';
+                this.hp = 3;
+                this.specials = 3;
+                this.speed = 0.15; // LERP speed for smooth movement
+                this.lastShot = 0;
+                this.fireRate = 10; // Frames between shots
+            }
+
+            update() {
+                // Smoothly move towards mouse/touch position
+                this.x += (mouse.x - this.x) * this.speed;
+                this.y += (mouse.y - this.y) * this.speed;
+
+                // Clamp to screen
+                this.x = Math.max(this.radius, Math.min(canvas.width - this.radius, this.x));
+                this.y = Math.max(this.radius, Math.min(canvas.height - this.radius, this.y));
+
+                // Auto fire when playing
+                if (isGameRunning && frameCount - this.lastShot > this.fireRate) {
+                    this.shoot();
+                    this.lastShot = frameCount;
+                }
+            }
+
+            draw() {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                
+                // Glow effect
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = this.color;
+                
+                // エンジン（スラスター）のジェット噴射
+                ctx.beginPath();
+                ctx.moveTo(-this.radius * 0.4, this.radius * 0.8);
+                ctx.lineTo(0, this.radius * 1.8 + Math.random() * 8);
+                ctx.lineTo(this.radius * 0.4, this.radius * 0.8);
+                ctx.fillStyle = '#0ff'; // ネオンシアン
+                ctx.fill();
+
+                // 自機（ステルス戦闘機風）のメインボディ
+                ctx.beginPath();
+                ctx.moveTo(0, -this.radius * 1.8); // 機首
+                ctx.lineTo(this.radius * 0.4, -this.radius * 0.3); // 右胴体
+                ctx.lineTo(this.radius * 1.4, this.radius * 0.6); // 右翼端
+                ctx.lineTo(this.radius * 0.6, this.radius * 0.8); // 右翼後方
+                ctx.lineTo(this.radius * 0.4, this.radius * 1.2); // 右エンジン
+                ctx.lineTo(-this.radius * 0.4, this.radius * 1.2); // 左エンジン
+                ctx.lineTo(-this.radius * 0.6, this.radius * 0.8); // 左翼後方
+                ctx.lineTo(-this.radius * 1.4, this.radius * 0.6); // 左翼端
+                ctx.lineTo(-this.radius * 0.4, -this.radius * 0.3); // 左胴体
+                ctx.closePath();
+                
+                ctx.fillStyle = '#0a0a1a'; // ダークメタルベース
+                ctx.fill();
+                ctx.strokeStyle = this.color;
+                ctx.lineWidth = 2;
+                ctx.stroke();
+
+                // コックピットの発光
+                ctx.beginPath();
+                ctx.moveTo(0, -this.radius * 0.8);
+                ctx.lineTo(this.radius * 0.2, -this.radius * 0.1);
+                ctx.lineTo(-this.radius * 0.2, -this.radius * 0.1);
+                ctx.closePath();
+                ctx.fillStyle = 'rgba(0, 255, 255, 0.7)';
+                ctx.fill();
+
+                // 翼のアクセントライン
+                ctx.beginPath();
+                ctx.moveTo(this.radius * 0.6, this.radius * 0.2);
+                ctx.lineTo(this.radius * 1.2, this.radius * 0.6);
+                ctx.moveTo(-this.radius * 0.6, this.radius * 0.2);
+                ctx.lineTo(-this.radius * 1.2, this.radius * 0.6);
+                ctx.strokeStyle = '#fff';
+                ctx.lineWidth = 1;
+                ctx.stroke();
+
+                ctx.restore();
+            }
+
+            shoot() {
+                // Dual lasers
+                projectiles.push(new Projectile(this.x - 8, this.y - 10, -10));
+                projectiles.push(new Projectile(this.x + 8, this.y - 10, -10));
+            }
+            
+            takeDamage() {
+                this.hp -= 1;
+                hpEl.innerText = this.hp;
+                
+                // Screen flash
+                ctx.fillStyle = 'rgba(255, 0, 0, 0.5)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                // Create debris
+                createParticles(this.x, this.y, '#0ff', 20);
+
+                if (this.hp <= 0) {
+                    gameOver();
+                }
+            }
+        }
+
+        class Projectile {
+            constructor(x, y, velocityY) {
+                this.x = x;
+                this.y = y;
+                this.radius = 3;
+                this.color = '#fff';
+                this.velocityY = velocityY;
+                this.markedForDeletion = false;
+            }
+
+            update() {
+                this.y += this.velocityY;
+                if (this.y < 0 - this.radius) {
+                    this.markedForDeletion = true;
+                }
+            }
+
+            draw() {
+                ctx.save();
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = '#0ff';
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Trail
+                ctx.beginPath();
+                ctx.moveTo(this.x, this.y);
+                ctx.lineTo(this.x, this.y - this.velocityY * 1.5);
+                ctx.strokeStyle = 'rgba(0, 255, 255, 0.5)';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                ctx.restore();
+            }
+        }
+
+        class Enemy {
+            constructor() {
+                this.radius = Math.random() * 15 + 10;
+                this.x = Math.random() * (canvas.width - this.radius * 2) + this.radius;
+                this.y = -this.radius;
+                
+                // Increase difficulty based on score
+                const speedMult = 1 + (score / 5000);
+                this.velocityY = (Math.random() * 2 + 1) * speedMult;
+                
+                this.color = `hsl(${Math.random() * 60 + 300}, 100%, 50%)`; // Pink/Red/Purple range
+                this.markedForDeletion = false;
+                this.hp = Math.floor(this.radius / 10); // Bigger enemies have more HP
+                this.angle = 0;
+                this.swayOffset = Math.random() * Math.PI * 2; // 機体を揺らすためのオフセット
+            }
+
+            update() {
+                this.y += this.velocityY;
+                
+                // 石のような回転ではなく、戦闘機のようにゆらゆらと揺れる動き
+                if (typeof frameCount !== 'undefined') {
+                    this.angle = Math.sin((frameCount * 0.05) + this.swayOffset) * 0.15;
+                }
+                
+                if (this.y > canvas.height + this.radius) {
+                    this.markedForDeletion = true;
+                }
+            }
+
+            draw() {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.angle);
+                
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = this.color;
+                
+                const r = this.radius;
+
+                // 敵機のエンジンスラスター（上部方向）
+                ctx.beginPath();
+                ctx.moveTo(-r * 0.3, -r * 0.8);
+                ctx.lineTo(0, -r * 1.5 - Math.random() * 5);
+                ctx.lineTo(r * 0.3, -r * 0.8);
+                ctx.fillStyle = this.color;
+                ctx.fill();
+
+                // 敵機（エイリアン戦闘機）のメインボディ
+                ctx.beginPath();
+                ctx.moveTo(0, r * 1.3); // 機首（下向き）
+                ctx.lineTo(r * 0.5, r * 0.3); // 右前部
+                ctx.lineTo(r * 1.2, -r * 0.2); // 右翼端
+                ctx.lineTo(r * 0.6, -r * 0.8); // 右尾翼
+                ctx.lineTo(0, -r * 0.4); // 尾部中央のくぼみ
+                ctx.lineTo(-r * 0.6, -r * 0.8); // 左尾翼
+                ctx.lineTo(-r * 1.2, -r * 0.2); // 左翼端
+                ctx.lineTo(-r * 0.5, r * 0.3); // 左前部
+                ctx.closePath();
+                
+                ctx.fillStyle = 'rgba(15, 10, 20, 0.9)'; // ダークで少し禍々しいメタル
+                ctx.fill();
+                ctx.strokeStyle = this.color;
+                ctx.lineWidth = 2;
+                ctx.stroke();
+
+                // コア（内部の発光エンジンパーツ）
+                ctx.beginPath();
+                ctx.moveTo(0, r * 0.6);
+                ctx.lineTo(r * 0.3, 0);
+                ctx.lineTo(0, -r * 0.2);
+                ctx.lineTo(-r * 0.3, 0);
+                ctx.closePath();
+                ctx.fillStyle = this.color;
+                ctx.globalAlpha = 0.6; // 半透明で光らせる
+                ctx.fill();
+                ctx.globalAlpha = 1.0;
+                
+                ctx.restore();
+            }
+            
+            takeDamage(damage) {
+                this.hp -= damage;
+                if(this.hp <= 0) {
+                    this.markedForDeletion = true;
+                    score += Math.floor(this.radius * 10);
+                    scoreEl.innerText = score;
+                    createParticles(this.x, this.y, this.color, Math.floor(this.radius));
+                } else {
+                    // Hit effect
+                    createParticles(this.x, this.y, this.color, 3);
+                }
+            }
+        }
+
+        class Particle {
+            constructor(x, y, color) {
+                this.x = x;
+                this.y = y;
+                this.radius = Math.random() * 2 + 1;
+                this.color = color;
+                const angle = Math.random() * Math.PI * 2;
+                const velocity = Math.random() * 5 + 2;
+                this.velocityX = Math.cos(angle) * velocity;
+                this.velocityY = Math.sin(angle) * velocity;
+                this.alpha = 1;
+                this.friction = 0.95;
+                this.markedForDeletion = false;
+            }
+
+            update() {
+                this.velocityX *= this.friction;
+                this.velocityY *= this.friction;
+                this.x += this.velocityX;
+                this.y += this.velocityY;
+                this.alpha -= 0.02;
+                if (this.alpha <= 0) {
+                    this.markedForDeletion = true;
+                }
+            }
+
+            draw() {
+                ctx.save();
+                ctx.globalAlpha = Math.max(0, this.alpha);
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = this.color;
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+        }
+
+        class Shockwave {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.radius = 10;
+                this.color = '#d946ef'; // Fuchsia
+                this.alpha = 1;
+                this.markedForDeletion = false;
+            }
+
+            update() {
+                this.radius += 25; // 衝撃波の広がるスピード
+                this.alpha -= 0.015;
+                if (this.alpha <= 0) {
+                    this.markedForDeletion = true;
+                }
+            }
+
+            draw() {
+                ctx.save();
+                ctx.globalAlpha = Math.max(0, this.alpha);
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.lineWidth = 15;
+                ctx.strokeStyle = this.color;
+                ctx.shadowBlur = 30;
+                ctx.shadowColor = this.color;
+                ctx.stroke();
+                ctx.restore();
+            }
+        }
+
+        // --- Core Functions ---
+
+        function createParticles(x, y, color, amount) {
+            for (let i = 0; i < amount; i++) {
+                particles.push(new Particle(x, y, color));
+            }
+        }
+
+        function triggerSpecial() {
+            if (!isGameRunning || player.specials <= 0) return;
+            
+            player.specials--;
+            specialEl.innerText = player.specials;
+            
+            // 衝撃波エフェクトを発生
+            shockwaves.push(new Shockwave(player.x, player.y));
+            
+            // 画面のフラッシュエフェクト
+            ctx.fillStyle = 'rgba(217, 70, 239, 0.5)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // 画面内の敵を全滅させる
+            enemies.forEach(enemy => {
+                if(!enemy.markedForDeletion) {
+                    enemy.markedForDeletion = true;
+                    score += Math.floor(enemy.radius * 10);
+                    createParticles(enemy.x, enemy.y, enemy.color, Math.floor(enemy.radius * 1.5));
+                }
+            });
+            scoreEl.innerText = score;
+            
+            // 回数ゼロでボタンを半透明に
+            if (player.specials <= 0) {
+                specialBtn.style.opacity = '0.3';
+            }
+        }
+
+        function initStars() {
+            stars = [];
+            for (let i = 0; i < 150; i++) {
+                stars.push(new Star());
+            }
+        }
+
+        function spawnEnemies() {
+            // Spawn rate increases with score
+            const spawnRate = Math.max(30, 90 - Math.floor(score / 500)); 
+            if (frameCount % spawnRate === 0) {
+                enemies.push(new Enemy());
+            }
+        }
+
+        function detectCollisions() {
+            // Projectiles vs Enemies
+            projectiles.forEach(projectile => {
+                enemies.forEach(enemy => {
+                    if (projectile.markedForDeletion || enemy.markedForDeletion) return;
+                    
+                    const dx = projectile.x - enemy.x;
+                    const dy = projectile.y - enemy.y;
+                    const distance = Math.hypot(dx, dy);
+                    
+                    if (distance < projectile.radius + enemy.radius) {
+                        projectile.markedForDeletion = true;
+                        enemy.takeDamage(1);
+                    }
+                });
+            });
+
+            // Player vs Enemies
+            enemies.forEach(enemy => {
+                if (enemy.markedForDeletion) return;
+                
+                const dx = player.x - enemy.x;
+                const dy = player.y - enemy.y;
+                const distance = Math.hypot(dx, dy);
+                
+                // Slightly forgiving collision box
+                if (distance < player.radius * 0.8 + enemy.radius) {
+                    enemy.markedForDeletion = true;
+                    player.takeDamage();
+                }
+            });
+        }
+
+        // --- Main Game Loop ---
+
+        function animate() {
+            if (!isGameRunning) return;
+            animationId = requestAnimationFrame(animate);
+            frameCount++;
+
+            // Clear canvas with trail effect
+            ctx.fillStyle = 'rgba(5, 5, 16, 0.3)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Update & Draw Stars
+            stars.forEach(star => {
+                star.update();
+                star.draw();
+            });
+
+            spawnEnemies();
+
+            // Update & Draw Player
+            player.update();
+            player.draw();
+
+            // Update & Draw Projectiles
+            projectiles = projectiles.filter(p => !p.markedForDeletion);
+            projectiles.forEach(projectile => {
+                projectile.update();
+                projectile.draw();
+            });
+
+            // Update & Draw Enemies
+            enemies = enemies.filter(e => !e.markedForDeletion);
+            enemies.forEach(enemy => {
+                enemy.update();
+                enemy.draw();
+            });
+
+            // Update & Draw Particles
+            particles = particles.filter(p => !p.markedForDeletion);
+            particles.forEach(particle => {
+                particle.update();
+                particle.draw();
+            });
+
+            // Update & Draw Shockwaves
+            shockwaves = shockwaves.filter(s => !s.markedForDeletion);
+            shockwaves.forEach(shockwave => {
+                shockwave.update();
+                shockwave.draw();
+            });
+
+            detectCollisions();
+        }
+
+        // --- Game Control Flow ---
+
+        function initGame() {
+            resize();
+            score = 0;
+            frameCount = 0;
+            scoreEl.innerText = score;
+            
+            player = new Player();
+            hpEl.innerText = player.hp;
+            specialEl.innerText = player.specials;
+            specialBtn.style.opacity = '1';
+            
+            projectiles = [];
+            enemies = [];
+            particles = [];
+            shockwaves = [];
+            
+            initStars();
+            
+            // Reset mouse to center bottom
+            mouse.x = canvas.width / 2;
+            mouse.y = canvas.height - 100;
+        }
+
+        function startGame() {
+            initGame();
+            isGameRunning = true;
+            
+            // Hide UI
+            startScreen.classList.add('hidden');
+            gameOverScreen.classList.add('hidden');
+            uiContainer.classList.remove('interactive');
+            hud.classList.remove('hidden');
+            specialBtn.classList.remove('hidden');
+            
+            animate();
+        }
+
+        function gameOver() {
+            isGameRunning = false;
+            cancelAnimationFrame(animationId);
+            
+            finalScoreEl.innerText = score;
+            
+            // Show Game Over UI
+            uiContainer.classList.add('interactive');
+            gameOverScreen.classList.remove('hidden');
+            hud.classList.add('hidden');
+            specialBtn.classList.add('hidden');
+            
+            // Draw one last frame to show destruction
+            ctx.fillStyle = 'rgba(0,0,0,0.7)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+
+        // --- Input Handling ---
+
+        function updatePointerPosition(e) {
+            if (!isGameRunning) return;
+            // Prevent default behavior (like scrolling on touch)
+            if(e.cancelable) e.preventDefault(); 
+            
+            let clientX, clientY;
+            if (e.touches && e.touches.length > 0) {
+                clientX = e.touches[0].clientX;
+                clientY = e.touches[0].clientY;
+            } else {
+                clientX = e.clientX;
+                clientY = e.clientY;
+            }
+            
+            // Smoothly interpolate to pointer
+            mouse.x = clientX;
+            // Add a small offset on mobile so the finger doesn't hide the ship
+            mouse.y = e.touches ? clientY - 40 : clientY;
+        }
+
+        // Mouse Events
+        canvas.addEventListener('mousemove', updatePointerPosition);
+        
+        // Touch Events
+        canvas.addEventListener('touchstart', updatePointerPosition, {passive: false});
+        canvas.addEventListener('touchmove', updatePointerPosition, {passive: false});
+
+        // Special Attack Event Listeners
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') {
+                e.preventDefault();
+                triggerSpecial();
+            }
+        });
+        
+        specialBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            triggerSpecial();
+        });
+        
+        specialBtn.addEventListener('touchstart', (e) => {
+            e.preventDefault(); 
+            e.stopPropagation();
+            triggerSpecial();
+        }, {passive: false});
+
+        // Button Listeners
+        startBtn.addEventListener('click', startGame);
+        restartBtn.addEventListener('click', startGame);
+
+        // Initial background render
+        initStars();
+        ctx.fillStyle = '#050510';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        stars.forEach(s => s.draw());
+
+    </script>
+</body>
+</html>
